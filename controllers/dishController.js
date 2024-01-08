@@ -105,7 +105,7 @@ const purchaseDish = async (req, res) => {
     }
     let completed = 0;
     let quant = 0;
-    if(req?.body?.dishArray) {
+    if(req?.body?.dishArray && req.body.amountPaid) {
         await checkPurshaseValid(req,res);
         if(valid==='invalid') {
             res.status(412).json({"Message":`${DishName} not exists`})
@@ -144,7 +144,7 @@ const purchaseDish = async (req, res) => {
         }
     } else {
         try{
-            res.status(412).json({"Message": 'Atleast 1 dish required'})
+            res.status(412).json({"Message": 'Atleast 1 dish and amount paid required'})
         } catch (err) {
             console.error(err)
         }
