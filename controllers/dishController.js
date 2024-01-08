@@ -1,9 +1,34 @@
-// const data={};
-// data.dishes = require('../model/dish.json');
-
 const Dishes = require('../model/Dish')
 const client = require('../config/redisconfig')
 
+let valid = '';
+let DishName = '';
+
+const checkPurshaseValid = async (req, res) => {
+    let amountrequired = 0;
+    for (const food of req.body.dishArray) {
+        const result = await Dishes.findOne({dishName: food.dishName}).exec();
+        // const result = await Dishes.findOne({dishName: {'$regex': food.dishName,$options:'i'}}).exec();
+        if(result!==null) {
+            amountrequired= parseInt(amountrequired) + (parseInt(result.pricePerItem)*parseInt(food.quantity))
+            if(result.availableQuantity < food.quantity) {
+                valid = "1";
+                DishName = food.dishName;
+                break;
+            }
+            else if (amountrequired >req.body.amountPaid) {
+                valid = "2";
+                break;
+            } else {
+                valid = "0";
+            }
+        } else {
+            DishName = food.dishName;
+            valid=`invalid`;
+            break;
+        }
+    }
+}
 const getAllDishes = async (req, res) => {
     const dishes = await Dishes.find();
     if(!dishes[0]) return res.json({"message":"No Data Found"})
@@ -81,36 +106,41 @@ const purchaseDish = async (req, res) => {
     let completed = 0;
     let quant = 0;
     if(req?.body?.dishArray) {
-        for (const food of req.body.dishArray) {
-            const result = await Dishes.findOne({dishName: {'$regex': food.dishName,$options:'i'}}).exec()
-            amountrequired= parseInt(amountrequired) + (parseInt(result.pricePerItem)*parseInt(food.quantity))
-            if(result.availableQuantity < food.quantity) {
-                completed=0;
-                try {
-                    res.status(412).json({"Message":`${food.dishName} not available`})
-                } catch (err) {
-                    console.error(err)
-                }
-            } else if(amountrequired > amountRecieved) {
-                completed=0;
-                try{
-                    res.status(412).json({"Message":`Amount Paid is less than total bill`})
-                } catch (err) {
-                    console.error(err)
-                }
-            } else {
-                 quant =  parseInt(result.availableQuantity) - parseInt(food.quantity);
-                await Dishes.findOneAndUpdate({dishName:food.dishName}, {availableQuantity: quant, pricePerItem:req.body.pricePerItem})
-                try {
-                    completed =1;
-                } catch(err) {
-                    console.error(err)
-                }
+        await checkPurshaseValid(req,res);
+        if(valid==='invalid') {
+            res.status(412).json({"Message":`${DishName} not exists`})
+        } else {
+            for (const food of req.body.dishArray) {
+                const result = await Dishes.findOne({dishName: food.dishName}).exec()
+                // const result = await Dishes.findOne({dishName: {'$regex': food.dishName,$options:'i'}}).exec()
+                amountrequired= parseInt(amountrequired) + (parseInt(result.pricePerItem)*parseInt(food.quantity))
+                if(valid === '1') {
+                    completed=0;
+                    try {
+                        res.status(412).json({"Message":`${DishName} not available`})
+                        break;
+                    } catch (err) {
+                        console.error(err)
+                    }
+                } else if (valid === '2') {
+                    completed=0;
+                    try{
+                        res.status(412).json({"Message":`Amount Paid is less than total bill`})
+                        break;
+                    } catch (err) {
+                        console.error(err)
+                    }
+                } else {
+                        quant =  parseInt(result.availableQuantity) - parseInt(food.quantity);
+                        await Dishes.findOneAndUpdate({dishName:food.dishName}, {availableQuantity: quant, pricePerItem:req.body.pricePerItem})
+                        completed =1;
+                    }
+            } 
+            if (completed && valid === '0') {
+                amountCollected = parseInt(amountCollected) + parseInt(amountrequired)
+                await client.set('amountCollected',parseInt(amountCollected))
+                res.status(200).json({"Message":`Change to be returned ${parseInt(amountRecieved) - parseInt(amountrequired)}`})
             }
-        } if (completed) {
-            amountCollected = parseInt(amountCollected) + parseInt(amountrequired)
-            await client.set('amountCollected',parseInt(amountCollected))
-            res.status(200).json({"Message":`Change to be returned ${parseInt(amountRecieved) - parseInt(amountrequired)}`})
         }
     } else {
         try{
@@ -120,7 +150,7 @@ const purchaseDish = async (req, res) => {
         }
     }
 }
-
+                        
 module.exports = {
     getAllDishes,
     addDishes,
